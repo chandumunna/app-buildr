@@ -89,3 +89,30 @@ One of the difficult junctures for app-buildr is how and when to trigger tasks. 
 
 The answer is we do not, but we need to know exactly what we need from another build and trigger accordingly. In the previous question about `/components/one/b` depending on `/components/one`, what we care about is the final packaged artifact of `/components/one` being ready. Deeper introspection reveals that a build may only actually depend on the `.tsd` for a build being ready though. Some consideration should be given to such triggering since much higher parallelism can be offered if we know that we can fire all builds in parallel but block on completion of specific tasks in other builds rather than waiting for the entire build to be complete.
 
+## Artifact sharing and types
+
+The previous example brings up a problem though: While the artifact such as the `.tsd` for a dependency may be ready, where do we find it? 
+
+Experience shows it's a very dirty practice for a build to know specifics of another build. So for instance, `/components/one/b` should absolutely not be hardcoded of where to look in the `target` directory for `/components/one`. If it does so and and that location changes, one and possibly many builds will break.
+
+What this leads to is the concept of an artifact type discriminator. In the case of the `.tsd` file(s), `/components/one` should publish the file(s) to the repository, but with a type of `tsd` so that they can be located independently of the build. 
+
+Taken a step further, artifact types can be used in different ways, SASS files come to mind. Based on the facilities of the framework or the skill levels of the team maintaining a project, it may (for instance) be much simpler for an application to work from a single CSS file that is generated as the composite of all the components. So if our final application is defined as the top folder in the hierarchy, the top-level build could use the dependency manager to determine that the SASS tool needs to know about all four builds below it and can even know what order they should be considered. A that point, the build tool could provide all the SASS files from these builds to the SASS compiler for the generation of the final output artifact (which itself is added to the repository with a `css` type).
+
+## Triggering revisited
+
+So far, we've created the basis of a multi-module build that blocks on specific artifacts of dependencies rather than waiting for the dependency to be completely built. What is the best way to set these dependencies?
+  
+One means that should be considered is instrumenting the repository such that a build can block on the repository artifact being updated rather than the blocking on an event from another build. This could be important for continuous integration environments where a large build may be split up across many machines. If we were to somewhow connect these machines over a network socket, how do we discover which machines are working on what builds? It seems much easier that a central repository that all builds are reporting to removes this synchronization difficulty because the discovery is to a single repository.
+
+# Repositories! (and ugh...)
+
+There's a lot of talk here about a repository hierarchy where artifacts are identified by a DNS-based `group`, local `name`, `version` and `type` for the unique aspect of a build we are interested in. The natural question is whether we should be considering four elements as a requirement at all, building a repository is not a simple task and getting it adopted can be even harder.
+   
+In past experience, tools drive repository adoption and not the other way around. If a tool can be an order of magnitude more productive than another because of a specific repository format, not only will that tool be quickly adopted due to it's relative benefits, the repository will gather significant support as well. 
+
+So the first question is what kind of tool app-buildr is going to be. If it is just another incremental reimagining of the tools that the Javascript world has used to date, then it might be better to use the existing `npm` infrastructure. It's widespread and well-understood. There may also be a way to introduce the desirable search granularity and triggering we want into `npm`, but since the package.json file is really oriented toward encapsulation of a single artifact, so this may present too much complexity in the multi-machine build scenario.
+ 
+There are other repository formats as well, Debian, YUM, Maven and Ivy to name a few. Both Maven and Ivy would support the functionality we need, but I think all four require some level of XML to be generated as a part of the identifying information. On the upside, we would not have to manage the repository infrastructure at all.
+
+The other important consideration is probably if we want the repository to trigger based on the change of a given artifact. This is very possible by wrapping the repository in a local API abstraction, but it adds code to app-buildr that must understand filesystem change semantics. I don't know enough about JS APIs but assume that this is possible. Again, we need to consider this in the context of a multi-machine build as well.
